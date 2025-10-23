@@ -1,0 +1,43 @@
+[
+  {
+    "arguments": [
+      "/usr/local/cuda/bin/nvcc",
+      "-DTORCH_EXTENSION_NAME=relu_lib",
+      "-DTORCH_API_INCLUDE_EXTENSION_H",
+      "-DPYBIND11_COMPILER_TYPE=\"_gcc\"",
+      "-DPYBIND11_STDLIB=\"_libstdcpp\"",
+      "-DPYBIND11_BUILD_ABI=\"_cxxabi1016\"",
+      "-isystem",
+      "/usr/local/lib/python3.12/dist-packages/torch/include",
+      "-isystem",
+      "/usr/local/lib/python3.12/dist-packages/torch/include/torch/csrc/api/include",
+      "-isystem",
+      "/usr/local/cuda/include",
+      "-isystem",
+      "/usr/include/python3.12",
+      "-D_GLIBCXX_USE_CXX11_ABI=1",
+      "-D__CUDA_NO_HALF_OPERATORS__",
+      "-D__CUDA_NO_HALF_CONVERSIONS__",
+      "-D__CUDA_NO_BFLOAT16_CONVERSIONS__",
+      "-D__CUDA_NO_HALF2_OPERATORS__",
+      "--compiler-options",
+      "-fPIC",
+      "-O3",
+      "-U__CUDA_NO_HALF_OPERATORS__",
+      "-U__CUDA_NO_HALF_CONVERSIONS__",
+      "-U__CUDA_NO_HALF2_OPERATORS__",
+      "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
+      "--expt-relaxed-constexpr",
+      "--expt-extended-lambda",
+      "--use_fast_math",
+      "-std=c++17",
+      "-c",
+      "-o",
+      "relu.cuda.o",
+      "/A/learn-ptx/a.cu"
+    ],
+    "directory": "/root/.cache/torch_extensions/py312_cu128/relu_lib",
+    "file": "/A/learn-ptx/a.cu",
+    "output": "a.out"
+  }
+]
