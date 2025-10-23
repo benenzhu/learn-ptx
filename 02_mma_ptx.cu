@@ -1,91 +1,11 @@
-#ifdef __CUDACC_RTC__
-using int8_t = signed char;
-using uint8_t = unsigned char;
-using int16_t = signed short;
-using uint16_t = unsigned short;
-using int32_t = signed int;
-using uint32_t = unsigned int;
-using int64_t = signed long long;
-using uint64_t = unsigned long long;
-using cuuint64_t = unsigned long long;
-
-namespace std {
-template <class T, T v>
-struct integral_constant {
-  static constexpr T value = v;
-  using value_type = T;
-  using type = integral_constant;  // using injected-class-name
-
-  __device__ constexpr operator value_type() const noexcept { return value; }
-
-  __device__ constexpr value_type operator()() const noexcept { return value; }  // since c++14
-};
-
-using false_type = integral_constant<bool, false>;
-using true_type = integral_constant<bool, true>;
-
-template <class T, class U>
-struct is_same : false_type {};
-
-template <class T>
-struct is_same<T, T> : true_type {};
-
-template <class T, class U>
-inline constexpr bool is_same_v = is_same<T, U>::value;
-} 
-#define CU_TENSOR_MAP_NUM_QWORDS 16
-
-struct CUtensorMap_st {
-#if defined(__cplusplus) && (__cplusplus >= 201103L)
-    alignas(64)
-#elif __STDC_VERSION__ >= 201112L
-    _Alignas(64)
-#endif
-        cuuint64_t opaque[CU_TENSOR_MAP_NUM_QWORDS];
-};
-
-using CUtensorMap = CUtensorMap_st;
-
-#else
-#include <cuda.h>
-#include <string>
-#endif
 #include <cuda_fp16.h>
+#include "00_rtc.cu"
 #include <cuda_pipeline.h>
 #include <cuda/barrier>
 #include <cuda/ptx>
-// typedef struct CUtensorMap_st {
-//     #if defined(__cplusplus) && (__cplusplus >= 201103L)
-//         alignas(64)
-//     #elif __STDC_VERSION__ >= 201112L
-//         _Alignas(64)
-//     #endif
-//         cuuint64_t opaque[CU_TENSOR_MAP_NUM_QWORDS];
-// } CUtensorMap;
 
 
 
-__device__ void print_mem(half *ptr, int row=16, int col=16){
-    // __syncthreads();
-    if(threadIdx.x == 0) {
-    
-        // printf("gmem data:\n");
-
-        for(int i = 0; i < row; i ++) {
-            if(i % 8 == 0 && i != 0) {
-                printf("\n");
-            }
-            for(int j = 0; j < col; j++) {
-                if(j % 8 == 0 && j != 0) {
-                    printf("  ");
-                }
-                printf("%6.1lf ",  __half2float(ptr[i*col+j]));
-            }
-            printf("\n");
-        }
-    }
-}
-// nvcc -o mma mma.cu -O2 -arch=sm_80 -std=c++17 -lcublas
 
 // a: row major
 // b: col major
@@ -229,14 +149,9 @@ __global__ void mma_ptx_kernel(half *c_ptr, half *a_ptr, half *b_ptr, half *d_pt
 }
 
 
-
-
-
-
 using barrier = cuda::barrier<cuda::thread_scope_block>;
 namespace cde = cuda::device::experimental;
 
-// nvcc -o tma tma.cu -O2 -arch=sm_90a -std=c++17 && ./tma
 
 __launch_bounds__(32*4)
 __global__ void tma_1d_kernel(half* ptr, int elts)
@@ -328,91 +243,3 @@ __global__ void tma_1d_kernel(half* ptr, int elts)
 }
 
 
-#define WIDTH 32
-#define HEIGHT 32
-#define W 16
-#define H 16
-
-extern "C"
-__global__ void tma_2d_kernel(const __grid_constant__ CUtensorMap tensor_map) {
-    // The destination shared memory buffer of a bulk tensor operation should be
-    // 128 byte aligned.
-    __shared__ __align__(128) half smem[W][H];
-
-    // The top-left corner of the tile is indicated by the indices x and y。
-    int x, y;
-    if(blockIdx.x == 0) {
-        x = 0, y = 0;
-    } else {
-        x = 16, y = 16;
-    }
-
-    // Initialize shared memory barrier with the number of threads participating in the barrier.
-    #pragma nv_diag_suppress static_var_with_dynamic_init
-    __shared__ barrier bar;
-
-    if (threadIdx.x == 0) {
-        // Initialize barrier. All `blockDim.x` threads in block participate.
-        init(&bar, blockDim.x);
-        // Make initialized barrier visible in async proxy.
-        cde::fence_proxy_async_shared_cta();
-    }
-    // Syncthreads so initialized barrier is visible to all threads.
-    __syncthreads();
-
-    barrier::arrival_token token;
-    if (threadIdx.x == 0) {
-        // Initiate bulk tensor copy.
-        cde::cp_async_bulk_tensor_2d_global_to_shared(&smem, &tensor_map, x, y, bar);
-        // Arrive on the barrier and tell how many bytes are expected to come in.
-        token = cuda::device::barrier_arrive_tx(bar, 1, sizeof(smem));
-    } else {
-        // Other threads just arrive.
-        token = bar.arrive();
-    }
-    // Wait for the data to have arrived.
-    bar.wait(std::move(token));
-
-    // Symbolically modify a value in shared memory.
-    if(threadIdx.x == 0) {
-        for(int i = 0; i < H; i ++) {
-            for(int j = 0; j < W; j ++) {
-                smem[i][j] = __hadd(smem[i][j], __float2half(0.1));
-                // smem[i][j] += 0.1;
-            }
-        }
-    }
-    __syncthreads();
-
-    if(threadIdx.x == 0 && blockIdx.x == 1) {
-        printf("\ndata on device:\n");
-        for(int i = 0; i < H; i ++) {
-            for(int j = 0; j < W; j ++) {
-                printf("%.2lf ", __half2float(smem[i][j]));
-            }
-            printf("\n");
-        }
-    }
-
-    // Wait for shared memory writes to be visible to TMA engine.
-    cde::fence_proxy_async_shared_cta();
-    __syncthreads();
-    // After syncthreads, writes by all threads are visible to TMA engine.
-
-    // Initiate TMA transfer to copy shared memory to global memory
-    if (threadIdx.x == 0) {
-        cde::cp_async_bulk_tensor_2d_shared_to_global(&tensor_map, x, y, &smem);
-        // Wait for TMA transfer to have finished reading shared memory.
-        // Create a "bulk async-group" out of the previous bulk copy operation.
-        cde::cp_async_bulk_commit_group();
-        // Wait for the group to have completed reading from shared memory.
-        cde::cp_async_bulk_wait_group_read<0>();
-    }
-
-    // Destroy barrier. This invalidates the memory region of the barrier. If
-    // further computations were to take place in the kernel, this allows the
-    // memory location of the shared memory barrier to be reused.
-    if (threadIdx.x == 0) {
-        (&bar)->~barrier();
-    }
-}

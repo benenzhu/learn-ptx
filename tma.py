@@ -26,4 +26,4 @@ swizzle_type_map = {
     32: cbd.CUtensorMapSwizzle.CU_TENSOR_MAP_SWIZZLE_32B,
     64: cbd.CUtensorMapSwizzle.CU_TENSOR_MAP_SWIZZLE_64B,
     128: cbd.CUtensorMapSwizzle.CU_TENSOR_MAP_SWIZZLE_128B,
-}k
+}
