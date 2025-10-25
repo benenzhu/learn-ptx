@@ -11,7 +11,12 @@ def get_kernel(kernel_name, file_name="00_add.hip"):
     kernel = _compile_kernel(
         open(file_name, "r").read(),
         kernel_name=kernel_name,
-        nvcc_options=["-std=c++17", "-Dhip_rtc", "-O3", "-s"],
+        nvcc_options=[
+            "-std=c++17", 
+            "-Dhip_rtc",
+            "-g", 
+            "-save-temps"
+            ],
         save_ptx=True,
     )
     toc = time.time()

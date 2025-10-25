@@ -279,6 +279,7 @@ def _nvrtc_compile(
     # For HIP, hipRTC generates raw CO binaries instead of PTX,
     # and for some reason, ".value" causes the string to be truncated,
     # likely due to the presence of '\0' in the string. So we use .raw instead.
+    print(ptx)
     ptx_bytes = ptx.raw if torch.version.hip else ptx.value
     return ptx_bytes, mangled_name
 

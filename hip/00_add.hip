@@ -12,6 +12,7 @@ void add_kernel(const int *A, const int *B, int *C, int M, int N) {
   C += bid * N;
 
 //printf("block_idx: %d thread_idx: %d   A:%p B:%p C:%p here...\n", blockIdx.x, threadIdx.x, A, B, C);
+
   for (int col = tid; col < N; col += tb_size)
     C[col] = A[col] + B[col];
 }
