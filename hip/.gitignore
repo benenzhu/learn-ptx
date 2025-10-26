@@ -1,4 +1,5 @@
 *.bc
 *.hipi
 __pycache__
+*.s
 
