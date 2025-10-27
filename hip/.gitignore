@@ -2,4 +2,6 @@
 *.hipi
 __pycache__
 *.s
+workloads
 
+.rocprofv3/
