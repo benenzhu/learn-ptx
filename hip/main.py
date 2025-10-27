@@ -22,8 +22,25 @@ def get_kernel(kernel_name, file_name="00_add.hip", config=None):
         defines = ["#define PYTHON_CALL\n"]
         for key, value in vars(config).items():
             defines.append(f"#define {key} {value}\n")
-        source = "".join(defines) + source
+        # Check if source starts with non-empty lines and warn
+        source_lines = source.split('\n')
+        non_empty_prefix = []
+        for line in source_lines:
+            if line.strip():
+                non_empty_prefix.append(line)
+            else:
+                break
+        
+        if non_empty_prefix:
+            print(f"Warning: Replacing {len(non_empty_prefix)} non-empty line(s) at the beginning of source file")
+            print(source_lines[:len(non_empty_prefix)])
+        
+        # Replace the first few lines with defines
+        num_lines_to_replace = len(defines)
+        remaining_source = '\n'.join(source_lines[num_lines_to_replace:])
+        source = "".join(defines) + remaining_source
     print("".join(defines))   
+
     kernel = _compile_kernel(
         kernel_source=source,
         kernel_name=kernel_name,
@@ -221,7 +238,7 @@ def bf16_matmul_full_NTN_v2_opt1(M, N, K):
         BLOCK_M=256,
         BLOCK_N=256,
         BLOCK_K=64)
-    matmul_kernel = get_kernel("fp16_gemm_full_NTN_v3", "02_fp16_gemm_v3.hip", config)
+    matmul_kernel = get_kernel("fp16_gemm_full_NTN_v3", "02_fp16_gemm_full_NTN_v3.hip", config)
     TB_SIZE = config.get_tb_size()
     GRID_SIZE = config.get_grid_size()
     shared_mem=config.get_shared_mem()
