@@ -1,11 +1,3 @@
-#define PYTHON_CALL
-#define M 4864
-#define N 4096
-#define K 4096
-#define BLOCK_M 256
-#define BLOCK_N 256
-#define BLOCK_K 64
-#define SMEM_STRIDE 0
 // #include <algorithm>
 #include <hip/hip_runtime.h>
 #include <hip/hip_bf16.h>
@@ -28,8 +20,8 @@ constexpr int MMA_M = 16;
 constexpr int MMA_N = 16;
 constexpr int MMA_K = 16;
 constexpr int WARP_SIZE = 64;
-constexpr int NUM_WARP_M = BLOCK_M / WARP_SIZE;
-constexpr int NUM_WARP_N = BLOCK_N / WARP_SIZE;
+// constexpr int NUM_WARP_M = BLOCK_M / WARP_SIZE;
+// constexpr int NUM_WARP_N = BLOCK_N / WARP_SIZE;
 
 using s16x4 = short __attribute__((__vector_size__(4 * sizeof(short))));
 using s16x8 = short __attribute__((__vector_size__(8 * sizeof(short))));
@@ -81,7 +73,7 @@ void gmem_to_smem(T *dst, const T *src, int src_stride, int tid) {
 
 __launch_bounds__(NUM_WARP_M * NUM_WARP_N * WARP_SIZE)
 __global__
-void fp16_gemm_full_NTN(
+void fp16_gemm_full_NTN_v2(
   const __hip_bfloat16 *A_gmem,
   const __hip_bfloat16 *B_gmem,
         __hip_bfloat16 *C_gmem

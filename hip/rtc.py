@@ -281,7 +281,7 @@ def _nvrtc_compile(
     # For HIP, hipRTC generates raw CO binaries instead of PTX,
     # and for some reason, ".value" causes the string to be truncated,
     # likely due to the presence of '\0' in the string. So we use .raw instead.
-    print(ptx)
+    # print(ptx)
     ptx_bytes = ptx.raw if torch.version.hip else ptx.value
     return ptx_bytes, mangled_name
 
@@ -553,13 +553,13 @@ def matmul_kernel(
         # Pointers to matrices
         a_ptr, b_ptr, c_ptr,
         # Matrix dimensions
-        M, N, K,
+        M: tl.constexpr, N: tl.constexpr, K: tl.constexpr,
         # The stride variables represent how much to increase the ptr by when moving by 1
         # element in a particular dimension. E.g. `stride_am` is how much to increase `a_ptr`
         # by to get the element one row down (A has M rows).
-        stride_am, stride_ak,  #
-        stride_bk, stride_bn,  #
-        stride_cm, stride_cn,
+        stride_am: tl.constexpr, stride_ak: tl.constexpr,  #
+        stride_bk: tl.constexpr, stride_bn: tl.constexpr,  #
+        stride_cm: tl.constexpr, stride_cn: tl.constexpr,
         # Meta-parameters
         BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,  #
         GROUP_SIZE_M: tl.constexpr,  #
@@ -638,9 +638,9 @@ def matmul_kernel(
     
 def get_triton_gemm_NTN(A, B, C, M, N, K):
     B = B.T
-    BLOCK_M = 128
-    BLOCK_N = 128
-    BLOCK_K = 64
+    BLOCK_M = 256
+    BLOCK_N = 256
+    BLOCK_K = 32
     grid = (triton.cdiv(M, BLOCK_M) * triton.cdiv(N, BLOCK_N),)
     matmul_kernel[grid](
         a_ptr = A, 
