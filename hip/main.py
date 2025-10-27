@@ -3,6 +3,7 @@ import torch
 import time
 import importlib
 import rtc
+import os
 
 importlib.reload(rtc)
 from rtc import _compile_kernel, get_triton_gemm_NTN, my_assert_close
@@ -104,6 +105,9 @@ def bench(f, A, B, C):
     name = frame.f_code.co_name
     from triton.testing import do_bench
     f()
+    if "ROCPROF_COUNTER_COLLECTION" in os.environ:
+        print("ROC_PERF on fast return here.")
+        return
     M, N, K = A.shape[0], B.shape[0], A.shape[1]
     right_output = torch.zeros_like(C)
     get_triton_gemm_NTN(A, B, right_output, M, N, K)
@@ -117,17 +121,19 @@ class Bf16MatmulFullNTNConfig:
     M: int = 4096
     N: int = 4096
     K: int = 4096
-    NUM_WARP_M: int = 2
-    NUM_WARP_N: int = 2
+    # NUM_WARP_M: int = 2
+    # NUM_WARP_N: int = 2
     BLOCK_M: int = 128
     BLOCK_N: int = 128
     BLOCK_K: int = 64
-    SMEM_STRIDE: int = 64
+    SMEM_STRIDE: int = 0
     def get_grid_size(self):
         return ((self.M + self.BLOCK_M - 1) // self.BLOCK_M)* ((self.N + self.BLOCK_N - 1) // self.BLOCK_N)
     def get_tb_size(self):
-        return 64 * self.NUM_WARP_M * self.NUM_WARP_N
+        return 64 * (self.BLOCK_M//64) * (self.BLOCK_N//64)
     def get_shared_mem(self):
+        if not self.SMEM_STRIDE:
+            self.SMEM_STRIDE = self.BLOCK_K
         return (self.BLOCK_M + self.BLOCK_N) * self.SMEM_STRIDE * 2
 
 
@@ -150,7 +156,7 @@ def bf16_matmul_full_NTN(M, N, K):
     kernel_fn = lambda: matmul_kernel((GRID_SIZE,1,1), (TB_SIZE,1,1), (A, B, C, M, N, K), shared_mem=shared_mem)
     bench(kernel_fn, A, B, C)
     
-ret = bf16_matmul_full_NTN(4096, 4096, 4096)
+# ret = bf16_matmul_full_NTN(4864, 4096, 4096)
 
 
 def bf16_matmul_full_NTN_v2(M, N, K):
@@ -166,7 +172,7 @@ def bf16_matmul_full_NTN_v2(M, N, K):
     
     bench(kernel_fn, A, B, C)
     
-ret = bf16_matmul_full_NTN_v2(4096, 4096, 4096)
+# ret = bf16_matmul_full_NTN_v2(4864, 4096, 4096)
 
 
 def bf16_matmul_full_NTN_v3(M, N, K):
@@ -182,6 +188,29 @@ def bf16_matmul_full_NTN_v3(M, N, K):
     
     bench(kernel_fn, A, B, C)
     
-ret = bf16_matmul_full_NTN_v3(4096, 4096, 4096)
+# ret = bf16_matmul_full_NTN_v3(4864, 4096, 4096)
+
+print(list(os.environ.keys()))
+
+def bf16_matmul_full_NTN_v2_opt1(M, N, K):
+    A, B, C = get_inputNTN(M, N, K)
+    config = Bf16MatmulFullNTNConfig(
+        M=M, 
+        N=N, 
+        K=K, 
+        BLOCK_M=256,
+        BLOCK_N=256,
+        BLOCK_K=64)
+    matmul_kernel = get_kernel("fp16_gemm_full_NTN", "02_fp16_gemm_v2.hip", config)
+    TB_SIZE = config.get_tb_size()
+    GRID_SIZE = config.get_grid_size()
+    shared_mem=config.get_shared_mem()
+    print(f"{GRID_SIZE=}, {TB_SIZE=}, {shared_mem=}")
+    matmul_kernel.set_shared_memory_config(shared_mem)
+    kernel_fn = lambda: matmul_kernel((GRID_SIZE,1,1), (TB_SIZE,1,1), (A, B, C, M, N, K), shared_mem=shared_mem)
+    
+    bench(kernel_fn, A, B, C)
+    
+ret = bf16_matmul_full_NTN_v2_opt1(4864, 4096, 4096)
 
 
