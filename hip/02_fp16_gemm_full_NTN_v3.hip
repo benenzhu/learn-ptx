@@ -1,13 +1,13 @@
-#define PYTHON_CALL
-#define M 4864
-#define N 4096
-#define K 4096
-#define NUM_WARP_M 2
-#define NUM_WARP_N 4
-#define BLOCK_M 256
-#define BLOCK_N 256
-#define BLOCK_K 64
-#define SMEM_STRIDE 0
+// #define PYTHON_CALL
+// #define M 4864
+// #define N 4096
+// #define K 4096
+// #define NUM_WARP_M 2
+// #define NUM_WARP_N 4
+// #define BLOCK_M 256
+// #define BLOCK_N 256
+// #define BLOCK_K 64
+// #define SMEM_STRIDE 0
 
 
 
@@ -22,6 +22,7 @@
 __device__ __host__
 constexpr int cdiv(int a, int b) { return (a + b - 1) / b; }
 
+constexpr int WARP_SIZE = 64;
 #ifndef PYTHON_CALL
 constexpr int M = 4096;
 constexpr int N = 4096;
@@ -30,17 +31,36 @@ constexpr int BLOCK_M = 128;
 constexpr int BLOCK_N = 128;
 constexpr int BLOCK_K = 64;
 constexpr int SMEM_STRIDE = 64;
+constexpr int NUM_WARP_M = BLOCK_M / WARP_SIZE;
+constexpr int NUM_WARP_N = BLOCK_N / WARP_SIZE;
 #endif
 constexpr int MMA_M = 16;
 constexpr int MMA_N = 16;
 constexpr int MMA_K = 16;
-constexpr int WARP_SIZE = 64;
-// constexpr int NUM_WARP_M = BLOCK_M / WARP_SIZE;
-// constexpr int NUM_WARP_N = BLOCK_N / WARP_SIZE;
 
 using s16x4 = short __attribute__((__vector_size__(4 * sizeof(short))));
 using s16x8 = short __attribute__((__vector_size__(8 * sizeof(short))));
 using fp32x4 = float __attribute__((__vector_size__(4 * sizeof(float))));
+
+__device__ void print_mem(const __hip_bfloat16 *ptr, int row=16, int col=16){
+  if(threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) { 
+      for(int i = 0; i < row; i ++) {
+          if(i % 8 == 0 && i != 0) {
+              printf("\n");
+          }
+          for(int j = 0; j < col; j++) {
+              if(j % 8 == 0 && j != 0) {
+                  printf("  ");
+              }
+              
+              float now = ptr[i*col+j];
+              printf("%6.1lf ",  now);
+          }
+          printf("\n");
+      }
+  }
+}
+
 
 // NOTE: stride in counts of BF16
 // row and col are also in the units of BF16 elements
@@ -68,7 +88,7 @@ int swizzle(int row, int col) {
 
 
 
-template <int HEIGHT=128, int WIDTH=128, int TB_SIZE=256, typename T>
+template <int HEIGHT=128, int WIDTH=BLOCK_K, int TB_SIZE=256, typename T>
 __device__
 void gmem_to_smem(T *dst, const T *src, int src_stride, int tid) {
   constexpr int multiplier/*8*/ = sizeof(float4) / sizeof(T);
@@ -80,8 +100,11 @@ void gmem_to_smem(T *dst, const T *src, int src_stride, int tid) {
     const int row = idx / WIDTH;
     const int col = idx % WIDTH;
 
-    const float4 data = reinterpret_cast<const float4 *>(src + (row * src_stride + col))[0];
     const int swizzled_col = swizzle<WIDTH>(row, col);
+    const float4 data = reinterpret_cast<const float4 *>(src + (row * src_stride + col))[0];
+    if (threadIdx.x < 5 && threadIdx.y == 0 && threadIdx.z == 0) {
+      printf("tid: %d, i: %d, row: %d, col: %d, WIDTH: %d, swizzled_col: %d\n", threadIdx.x, i, row, col, WIDTH, swizzled_col);
+    }
     reinterpret_cast<float4 *>(dst + (row * WIDTH + swizzled_col))[0] = data;
   }
 }
@@ -152,7 +175,16 @@ void fp16_gemm_full_NTN_v3(
     gmem_to_smem<BLOCK_N, BLOCK_K, TB_SIZE>(B_smem, B_gmem, K, tid);
     A_gmem += BLOCK_K;
     B_gmem += BLOCK_K;
+    
+    __syncthreads();
+    // if(threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+    //   printf("A_smem:\n");
+    //   print_mem(A_smem, BLOCK_M, BLOCK_K);
+    //   printf("B_smem:\n");
+    //   print_mem(B_smem, BLOCK_N, BLOCK_K);
+    // }
 
+    __syncthreads();
     // smem->rmem
     // K_L = 16 / (64 / (16 * 1)) = 16 / 4 = 4
     // A: lane (k / 4) * M + i

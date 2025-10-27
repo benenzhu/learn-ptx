@@ -131,9 +131,13 @@ def bench(f, A, B, C, check_correct=True):
     M, N, K = A.shape[0], B.shape[0], A.shape[1]
     torch.cuda.synchronize()
     right_output = torch.zeros_like(C)
-    triton_fn = lambda: get_triton_gemm_NTN(A, B, right_output, M, N, K)
-    BT = B.T
-    triton_fn = lambda: persistent_matmul_lt(A, BT, right_output, None)
+    if M >= 512:
+        A = A.T.contiguous()
+        BT = B.T.contiguous()
+        triton_fn = lambda: persistent_matmul_lt(A.T, BT, right_output, None)
+    else:
+        BT = B.T
+        triton_fn = lambda: get_triton_gemm_NTN(A, B, right_output, M, N, K)
     if check_correct:
         ret = triton_fn()
         my_assert_close(C, right_output)
@@ -171,8 +175,12 @@ class Bf16MatmulFullNTNConfig:
 
 
 def get_inputNTN(M, N, K):
-    A = torch.randn(M, K, device="cuda").bfloat16().contiguous()
-    B = torch.randn(N, K, device="cuda").bfloat16().contiguous() 
+    if M <= 512:
+        A = torch.arange(M*K, device="cuda").reshape(M, K).bfloat16().contiguous() * 0.1
+        B = torch.arange(N*K, device="cuda").reshape(N, K).bfloat16().contiguous() * 0.1
+    else:
+        A = torch.randn(M, K, device="cuda").bfloat16().contiguous()
+        B = torch.randn(N, K, device="cuda").bfloat16().contiguous() 
     C = torch.zeros(M, N, device="cuda").bfloat16().contiguous()
     return A, B, C
 
@@ -249,7 +257,8 @@ def bf16_matmul_full_NTN_v2_opt1(M, N, K):
     ret = bench(kernel_fn, A, B, C)
     return ret
     
-ret = bf16_matmul_full_NTN_v2_opt1(4864, 4096, 4096)
+# ret = bf16_matmul_full_NTN_v2_opt1(4864, 4096, 4096)
+ret = bf16_matmul_full_NTN_v2_opt1(256, 256, 64)
 
 
 
