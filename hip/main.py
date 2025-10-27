@@ -2,10 +2,12 @@ import torch
 import time
 import importlib
 import rtc
+
 importlib.reload(rtc)
-from rtc import _compile_kernel
+from rtc import _compile_kernel, get_triton_gemm_NTN
 
 
+torch.set_printoptions(threshold=1000, edgeitems=3)     
 def get_kernel(kernel_name, file_name="00_add.hip"):
     tic = time.time()
     kernel = _compile_kernel(
@@ -73,7 +75,7 @@ def test_bf16_matmul_NNN():
     matmul_kernel((1,1,1), (16,4,1), (A, B, C))
     torch.cuda.synchronize()
 
-test_bf16_matmul_NNN()
+# test_bf16_matmul_NNN()
 
 
 def test_bf16_matmul_NTN():
@@ -85,14 +87,15 @@ def test_bf16_matmul_NTN():
     matmul_kernel((1,1,1), (16,4,1), (A, B, C))
     torch.cuda.synchronize()
     
-test_bf16_matmul_NTN()
+# test_bf16_matmul_NTN()
 
 def bf16_matmul_full_NTN():
     matmul_kernel = get_kernel("fp16_gemm_full_NTN", "02_fp16_gemm_v1.hip")
+    # M, N, K = 4096, 4096, 4096
     M, N, K = 4096, 4096, 4096
-    A = torch.randn(M, K, device="cuda").bfloat16()
-    B = torch.randn(N, K, device="cuda").bfloat16()
-    C = torch.zeros(M, N, device="cuda").bfloat16()
+    A = torch.randn(M, K, device="cuda").bfloat16().contiguous()
+    B = torch.randn(N, K, device="cuda").bfloat16().contiguous() 
+    C = torch.zeros(M, N, device="cuda").bfloat16().contiguous()
     
     
     NUM_WRAP_M = 2
@@ -107,26 +110,39 @@ def bf16_matmul_full_NTN():
     matmul_kernel.set_shared_memory_config(shared_mem)
     matmul_kernel((GRID_SIZE,1,1), (TB_SIZE,1,1), (A, B, C, M, N, K), shared_mem=shared_mem)
     torch.cuda.synchronize()
-    if not torch.allclose(C, A @ B.T, atol=1e-3, rtol=1e-3):
+    right_output = torch.zeros_like(C)
+    get_triton_gemm_NTN(A, B, right_output, M, N, K)
+    if not torch.allclose(C, right_output, atol=1e-3, rtol=1e-3):
         print("C is not close to A @ B.T")
-        print(C)
-        print(A @ B.T)
-        print(A)
-        print(B)
-        diff = C - A @ B.T
-        print(C - A @ B.T)
-        print("diff", (C - A @ B.T).max().item())
+        diff = C - right_output
+        print(diff)
+        print("diff", (diff).max().item())
         max_diff_idx = diff.abs().argmax()
         max_diff_row = max_diff_idx // N
         max_diff_col = max_diff_idx % N
         print(f"Max diff at position ({max_diff_row}, {max_diff_col})")
         print(f"C[{max_diff_row}, {max_diff_col}] = {C[max_diff_row, max_diff_col]}")
-        print(f"Expected = {(A @ B.T)[max_diff_row, max_diff_col]}")
-        print(f"{diff.reshape(-1).sort()}")
-        return diff
-    torch.testing.assert_close(C, A @ B.T)
+        print(f"Expected = {right_output[max_diff_row, max_diff_col]}")
+        print(f"{diff.abs().mean()=}")
     
-     
+        torch.set_printoptions(threshold=1000, edgeitems=200, linewidth=200)     
+        print(f"{diff.reshape(-1).sort()[0]=}")
+        torch.set_printoptions(threshold=1000, edgeitems=3)     
+        return diff
+    torch.testing.assert_close(C, right_output)
+    print(C, right_output)
+    
+
+
+    
+
+
+
+
+    
+    # diff_tensor = C - A @ B
+    # print(f"{diff_tensor.abs().mean()=}")
+    # print(f"{diff_tensor.reshape(-1).sort()[0]=}")
+    # return diff_tensor
+
 ret = bf16_matmul_full_NTN()
-
-
