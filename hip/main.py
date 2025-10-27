@@ -1,17 +1,25 @@
+from dataclasses import dataclass
 import torch
 import time
 import importlib
 import rtc
 
 importlib.reload(rtc)
-from rtc import _compile_kernel, get_triton_gemm_NTN
+from rtc import _compile_kernel, get_triton_gemm_NTN, my_assert_close
 
 
 torch.set_printoptions(threshold=1000, edgeitems=3)     
-def get_kernel(kernel_name, file_name="00_add.hip"):
+def get_kernel(kernel_name, file_name="00_add.hip", config=None):
     tic = time.time()
+    source = open(file_name, "r").read()
+    if config is not None:
+        defines = ["#define PYTHON_CALL\n"]
+        for key, value in vars(config).items():
+            defines.append(f"#define {key} {value}\n")
+        source = "".join(defines) + source
+    print("".join(defines))   
     kernel = _compile_kernel(
-        open(file_name, "r").read(),
+        kernel_source=source,
         kernel_name=kernel_name,
         nvcc_options=[
             "-std=c++17", 
@@ -89,60 +97,75 @@ def test_bf16_matmul_NTN():
     
 # test_bf16_matmul_NTN()
 
-def bf16_matmul_full_NTN():
-    matmul_kernel = get_kernel("fp16_gemm_full_NTN", "02_fp16_gemm_v1.hip")
-    # M, N, K = 4096, 4096, 4096
-    M, N, K = 4096, 4096, 4096
+
+def bench(f, A, B, C):
+    import inspect
+    frame = inspect.currentframe().f_back
+    name = frame.f_code.co_name
+    from triton.testing import do_bench
+    f()
+    M, N, K = A.shape[0], B.shape[0], A.shape[1]
+    right_output = torch.zeros_like(C)
+    get_triton_gemm_NTN(A, B, right_output, M, N, K)
+    my_assert_close(C, right_output)
+    latency_ms = do_bench(f, warmup=100, rep=500)
+    tflops = 2 * M * N * K / (latency_ms * 1e-3) * 1e-12
+    print(f"{name}: {tflops:.2f} TFLOPS")
+
+@dataclass
+class Bf16MatmulFullNTNConfig:
+    M: int = 4096
+    N: int = 4096
+    K: int = 4096
+    NUM_WARP_M: int = 2
+    NUM_WARP_N: int = 2
+    BLOCK_M: int = 128
+    BLOCK_N: int = 128
+    BLOCK_K: int = 64
+    SMEM_STRIDE: int = 64
+    def get_grid_size(self):
+        return ((self.M + self.BLOCK_M - 1) // self.BLOCK_M)* ((self.N + self.BLOCK_N - 1) // self.BLOCK_N)
+    def get_tb_size(self):
+        return 64 * self.NUM_WARP_M * self.NUM_WARP_N
+    def get_shared_mem(self):
+        return (self.BLOCK_M + self.BLOCK_N) * self.BLOCK_K * 4
+
+
+def get_inputNTN(M, N, K):
     A = torch.randn(M, K, device="cuda").bfloat16().contiguous()
     B = torch.randn(N, K, device="cuda").bfloat16().contiguous() 
     C = torch.zeros(M, N, device="cuda").bfloat16().contiguous()
-    
-    
-    NUM_WRAP_M = 2
-    NUM_WARP_N = 2
-    BLOCK_M = 128
-    BLOCK_N = 128
-    BLOCK_K = 64
-    TB_SIZE = 64 * NUM_WRAP_M * NUM_WARP_N
-    GRID_SIZE = ((M + BLOCK_M - 1) // BLOCK_M)* ((N + BLOCK_N - 1) // BLOCK_N)
-    print(f"{GRID_SIZE=}, {TB_SIZE=}")
-    shared_mem=(BLOCK_M + BLOCK_N) * BLOCK_K * 4
+    return A, B, C
+
+
+def bf16_matmul_full_NTN(M, N, K):
+    A, B, C = get_inputNTN(M, N, K)
+    config = Bf16MatmulFullNTNConfig(M=M, N=N, K=K)
+    matmul_kernel = get_kernel("fp16_gemm_full_NTN", "02_fp16_gemm_v1.hip", config)
+    TB_SIZE = config.get_tb_size()
+    GRID_SIZE = config.get_grid_size()
+    shared_mem=config.get_shared_mem()
+    print(f"{GRID_SIZE=}, {TB_SIZE=}, {shared_mem=}")
     matmul_kernel.set_shared_memory_config(shared_mem)
-    matmul_kernel((GRID_SIZE,1,1), (TB_SIZE,1,1), (A, B, C, M, N, K), shared_mem=shared_mem)
-    torch.cuda.synchronize()
-    right_output = torch.zeros_like(C)
-    get_triton_gemm_NTN(A, B, right_output, M, N, K)
-    if not torch.allclose(C, right_output, atol=1e-3, rtol=1e-3):
-        print("C is not close to A @ B.T")
-        diff = C - right_output
-        print(diff)
-        print("diff", (diff).max().item())
-        max_diff_idx = diff.abs().argmax()
-        max_diff_row = max_diff_idx // N
-        max_diff_col = max_diff_idx % N
-        print(f"Max diff at position ({max_diff_row}, {max_diff_col})")
-        print(f"C[{max_diff_row}, {max_diff_col}] = {C[max_diff_row, max_diff_col]}")
-        print(f"Expected = {right_output[max_diff_row, max_diff_col]}")
-        print(f"{diff.abs().mean()=}")
+    kernel_fn = lambda: matmul_kernel((GRID_SIZE,1,1), (TB_SIZE,1,1), (A, B, C, M, N, K), shared_mem=shared_mem)
+    bench(kernel_fn, A, B, C)
     
-        torch.set_printoptions(threshold=1000, edgeitems=200, linewidth=200)     
-        print(f"{diff.reshape(-1).sort()[0]=}")
-        torch.set_printoptions(threshold=1000, edgeitems=3)     
-        return diff
-    torch.testing.assert_close(C, right_output)
-    print(C, right_output)
+ret = bf16_matmul_full_NTN(4096, 4096, 4096)
+
+
+def bf16_matmul_full_NTN_v2(M, N, K):
+    A, B, C = get_inputNTN(M, N, K)
+    config = Bf16MatmulFullNTNConfig(M=M, N=N, K=K, SMEM_STRIDE=64 + 8)
+    matmul_kernel = get_kernel("fp16_gemm_full_NTN", "02_fp16_gemm_v1.hip", config)
+    TB_SIZE = config.get_tb_size()
+    GRID_SIZE = config.get_grid_size()
+    shared_mem=config.get_shared_mem()
+    print(f"{GRID_SIZE=}, {TB_SIZE=}, {shared_mem=}")
+    matmul_kernel.set_shared_memory_config(shared_mem)
+    kernel_fn = lambda: matmul_kernel((GRID_SIZE,1,1), (TB_SIZE,1,1), (A, B, C, M, N, K), shared_mem=shared_mem)
     
-
-
+    bench(kernel_fn, A, B, C)
     
+ret = bf16_matmul_full_NTN_v2(4096, 4096, 4096)
 
 
-
-
-    
-    # diff_tensor = C - A @ B
-    # print(f"{diff_tensor.abs().mean()=}")
-    # print(f"{diff_tensor.reshape(-1).sort()[0]=}")
-    # return diff_tensor
-
-ret = bf16_matmul_full_NTN()

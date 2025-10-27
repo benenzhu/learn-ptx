@@ -661,3 +661,27 @@ def get_triton_gemm_NTN(A, B, C, M, N, K):
         GROUP_SIZE_M = 1, 
         ACTIVATION = None, 
     )
+    
+
+def my_assert_close(output, ref_output):
+    if not torch.allclose(output, ref_output, atol=1e-3, rtol=1e-3):
+        print("C is not close to A @ B")
+        diff = output - ref_output
+        print(diff)
+        print("diff", (diff).max().item())
+        # max_diff_idx = diff.abs().argmax()
+        # max_diff_row = max_diff_idx // N
+        # max_diff_col = max_diff_idx % N
+        # print(f"Max diff at position ({max_diff_row}, {max_diff_col})")
+        # print(f"C[{max_diff_row}, {max_diff_col}] = {C[max_diff_row, max_diff_col]}")
+        # print(f"Expected = {right_output[max_diff_row, max_diff_col]}")
+        print(f"{diff.abs().mean()=}")
+    
+        torch.set_printoptions(threshold=1000, edgeitems=200, linewidth=200)     
+        print(f"{diff.reshape(-1).sort()[0]=}")
+        torch.set_printoptions(threshold=1000, edgeitems=3)     
+        return diff
+    print("test passed")
+    return None
+    # torch.testing.assert_close(C, right_output)
+    # print(C, right_output)

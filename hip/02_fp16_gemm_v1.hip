@@ -1,31 +1,31 @@
+
 #include <hip/hip_runtime.h>
 #include <hip/hip_bf16.h>
 
-
+__device__ __host__
+constexpr int cdiv(int a, int b) { return (a + b - 1) / b; }
+#ifndef PYTHON_CALL
+constexpr int M = 4096;
+constexpr int N = 4096;
+constexpr int K = 4096;
+constexpr int NUM_WARP_M = 2;
+constexpr int NUM_WARP_N = 2;
+constexpr int BLOCK_M = 128;
+constexpr int BLOCK_N = 128;
+constexpr int BLOCK_K = 64;
+constexpr int SMEM_STRIDE = 64;
+#endif
+constexpr int MMA_M = 16;
+constexpr int MMA_N = 16;
+constexpr int MMA_K = 16;
+constexpr int WARP_SIZE = 64;
 
 using s16x4 = short __attribute__((__vector_size__(4 * sizeof(short))));
 using s16x8 = short __attribute__((__vector_size__(8 * sizeof(short))));
 using fp32x4 = float __attribute__((__vector_size__(4 * sizeof(float))));
 
-constexpr int MMA_M = 16;
-constexpr int MMA_N = 16;
-constexpr int MMA_K = 16;
-__device__ __host__
-constexpr int cdiv(int a, int b) { return (a + b - 1) / b; }
-constexpr int BLOCK_M = 128;
-constexpr int BLOCK_N = 128;
-constexpr int BLOCK_K = 64;
-constexpr int SMEM_STRIDE = BLOCK_K /*64*/;
-constexpr int WARP_SIZE = 64;
 
-constexpr int NUM_WARP_M = 2;
-constexpr int NUM_WARP_N = 2;
-
-const int tb_size /*256*/ = NUM_WARP_M /*2*/ * NUM_WARP_N /*2*/ * WARP_SIZE /*64*/;
-const int smem_size /*32,768*/ = (BLOCK_M /*128*/ + BLOCK_N /*128*/) * BLOCK_K /*64*/ * sizeof(__hip_bfloat16) /*2 bytes*/;
-
-
-template <int HEIGHT=128, int WIDTH=128, int SMEM_STRIDE=64, int TB_SIZE=256, typename T>
+template <int HEIGHT=128, int WIDTH=128, int TB_SIZE=256, typename T>
 __device__
 void gmem_to_smem(T *dst, const T *src, int src_stride, int tid) {
   constexpr int multiplier/*8*/ = sizeof(float4) / sizeof(T);
@@ -47,8 +47,7 @@ __global__
 void fp16_gemm_full_NTN(
   const __hip_bfloat16 *A_gmem,
   const __hip_bfloat16 *B_gmem,
-        __hip_bfloat16 *C_gmem,
-  int M, int N, int K
+        __hip_bfloat16 *C_gmem
 ) {
   constexpr int WARP_M /*64*/ = BLOCK_M /*128*/ / NUM_WARP_M /*2*/;
   constexpr int WARP_N /*64*/ = BLOCK_N /*128*/ / NUM_WARP_N /*2*/;
@@ -105,8 +104,8 @@ void fp16_gemm_full_NTN(
   for (int iter_k = 0; iter_k < num_k_iters; iter_k++) {
     // gmem->smem
     __syncthreads();
-    gmem_to_smem<BLOCK_M, BLOCK_K, SMEM_STRIDE, TB_SIZE>(A_smem, A_gmem, K, tid);
-    gmem_to_smem<BLOCK_N, BLOCK_K, SMEM_STRIDE, TB_SIZE>(B_smem, B_gmem, K, tid);
+    gmem_to_smem<BLOCK_M, BLOCK_K, TB_SIZE>(A_smem, A_gmem, K, tid);
+    gmem_to_smem<BLOCK_N, BLOCK_K, TB_SIZE>(B_smem, B_gmem, K, tid);
     A_gmem += BLOCK_K;
     B_gmem += BLOCK_K;
 
