@@ -1,4 +1,17 @@
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 #include <hip/hip_runtime.h>
 #include <hip/hip_bf16.h>
 
@@ -24,8 +37,8 @@ using s16x4 = short __attribute__((__vector_size__(4 * sizeof(short))));
 using s16x8 = short __attribute__((__vector_size__(8 * sizeof(short))));
 using fp32x4 = float __attribute__((__vector_size__(4 * sizeof(float))));
 
-
-template <int HEIGHT=128, int WIDTH=128, int TB_SIZE=256, typename T>
+constexpr int CTA_SIZE = NUM_WARP_M * NUM_WARP_N * WARP_SIZE;
+template <int HEIGHT=BLOCK_M, int WIDTH=BLOCK_K, int TB_SIZE=CTA_SIZE, typename T=__hip_bfloat16>
 __device__
 void gmem_to_smem(T *dst, const T *src, int src_stride, int tid) {
   constexpr int multiplier/*8*/ = sizeof(float4) / sizeof(T);
