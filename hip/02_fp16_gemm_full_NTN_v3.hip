@@ -103,7 +103,7 @@ void gmem_to_smem(T *dst, const T *src, int src_stride, int tid) {
     const int swizzled_col = swizzle<WIDTH>(row, col);
     const float4 data = reinterpret_cast<const float4 *>(src + (row * src_stride + col))[0];
     if (threadIdx.x < 5 && threadIdx.y == 0 && threadIdx.z == 0) {
-      printf("tid: %d, i: %d, row: %d, col: %d, WIDTH: %d, swizzled_col: %d\n", threadIdx.x, i, row, col, WIDTH, swizzled_col);
+      // printf("tid: %d, i: %d, row: %d, col: %d, WIDTH: %d, swizzled_col: %d\n", threadIdx.x, i, row, col, WIDTH, swizzled_col);
     }
     reinterpret_cast<float4 *>(dst + (row * WIDTH + swizzled_col))[0] = data;
   }

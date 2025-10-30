@@ -4,6 +4,7 @@ import time
 import importlib
 import rtc
 import os
+os.environ["ROCPROF_COUNTER_COLLECTION"] = "1"
 
 importlib.reload(rtc)
 # import tritonblas
@@ -257,8 +258,41 @@ def bf16_matmul_full_NTN_v2_opt1(M, N, K):
     ret = bench(kernel_fn, A, B, C)
     return ret
     
+ret = bf16_matmul_full_NTN_v2_opt1(4864, 4096, 4096)
+# ret = bf16_matmul_full_NTN_v2_opt1(256, 256, 64)
+
+
+def bf16_matmul_full_NTN_v4(M, N, K):
+    A, B, C = get_inputNTN(M, N, K)
+    
+
+    config = Bf16MatmulFullNTNConfig(
+        M=M, 
+        N=N, 
+        K=K, 
+        NUM_WARP_M=2,
+        NUM_WARP_N=4,
+        BLOCK_M=256,
+        BLOCK_N=256,
+        BLOCK_K=64)
+    matmul_kernel = get_kernel("fp16_gemm_full_NTN_v4", "02_fp16_gemm_full_NTN_v4.hip", config)
+    TB_SIZE = config.get_tb_size()
+    GRID_SIZE = config.get_grid_size()
+    shared_mem=config.get_shared_mem()
+    print(f"{GRID_SIZE=}, {TB_SIZE=}, {shared_mem=}")
+    matmul_kernel.set_shared_memory_config(shared_mem)
+    kernel_fn = lambda: matmul_kernel((GRID_SIZE,1,1), (TB_SIZE,1,1), (A, B, C, M, N, K), shared_mem=shared_mem)
+    
+    ret = bench(kernel_fn, A, B, C)
+    return ret
+    
 # ret = bf16_matmul_full_NTN_v2_opt1(4864, 4096, 4096)
-ret = bf16_matmul_full_NTN_v2_opt1(256, 256, 64)
+# ret = bf16_matmul_full_NTN_v2_opt1(256, 256, 128)
+ret = bf16_matmul_full_NTN_v4(256, 256, 64)
+# ret = bf16_matmul_full_NTN_v4(64*4, 64*4, 128*4)
+
+
+
 
 
 

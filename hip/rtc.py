@@ -675,6 +675,8 @@ def my_assert_close(output, ref_output):
         # print(f"Max diff at position ({max_diff_row}, {max_diff_col})")
         # print(f"C[{max_diff_row}, {max_diff_col}] = {C[max_diff_row, max_diff_col]}")
         # print(f"Expected = {right_output[max_diff_row, max_diff_col]}")
+        print(f"{output=}")
+        print(f"{ref_output=}")
         print(f"{diff.abs().mean()=}")
     
         torch.set_printoptions(threshold=1000, edgeitems=200, linewidth=200)     
