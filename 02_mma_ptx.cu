@@ -67,7 +67,7 @@ __global__ void mma_ptx_kernel(half *c_ptr, half *a_ptr, half *b_ptr, half *d_pt
 
     src = smem_b + tid % 16 * 16 + tid / 16 * 8;
     addr = __cvta_generic_to_shared(src);
-    asm("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];\n"
+    asm("ldmatrix.sync.aligned.x4.m8n8.shared.b16 {%0, %1, %2, %3}, [%4];\n"
         :"=r"(b_regs[0]), "=r"(b_regs[1]), "=r"(b_regs[2]), "=r"(b_regs[3])
         :"r"(addr)
     );

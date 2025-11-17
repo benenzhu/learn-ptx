@@ -1,1 +1,7 @@
 .what-is-this.md
+.specstory
+.cache
+*.ptx
+*.pch
+__pycache__/
+compiled_cache.db

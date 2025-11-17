@@ -3,9 +3,11 @@
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include <cuda_pipeline.h>
+#include "00_rtc.cu"
 
 
-extern "C"
+
+/* simple kernel, how to use nvrtc and call it in python*/
 __global__ __launch_bounds__(256) void add_kernel(const float *A, const float *B, float *C, int size) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < size / 4){
@@ -24,32 +26,11 @@ __global__ __launch_bounds__(256) void add_kernel(const float *A, const float *B
 // template<int elts>
 constexpr int elts = 16 * 16;
 constexpr bool ASYNC_USE_PTX = false;
-extern "C"
-
-__device__ void print_mem(half *ptr, int row=16, int col=16){
-    if(threadIdx.x == 0) {
-        printf("gmem data:\n");
-
-        for(int i = 0; i < row; i ++) {
-            if(i == 8) {
-                printf("\n");
-            }
-            for(int j = 0; j < col; j++) {
-                if(j == 8) {
-                    printf("  ");
-                }
-                printf("%6.lf ",  __half2float(ptr[i*col+j]));
-            }
-            printf("\n");
-        }
-    }
-}
-
 
 // https://zhuanlan.zhihu.com/p/1887108012579197523
-__global__ void async_cp_kernel(half *ptr) {
+__global__ __launch_bounds__(32) void async_cp_kernel(half *ptr) {
     __shared__ half smem[elts];
-    for(int i = 0; i < elts; i += 32){
+    for (int i = 0; i < elts; i += blockDim.x) {
         smem[i] =  __float2half(0.0);
     }
     __syncthreads();
@@ -58,7 +39,22 @@ __global__ void async_cp_kernel(half *ptr) {
     // half *src = ptr + threadIdx.x / 2 * 16 + threadIdx.x % 2 * 8;
     half *src = ptr + threadIdx.x * 8;
     half *dst = smem + threadIdx.x * 8;
-    // 每个 thread 拷贝自己的 n 个过来, 最多 16 个 单条命令..
+    // 每个 thread 拷贝自己的 n 个过来, 最多 16 个Byte 单条命令?
+/*
+ * https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-non-bulk-copy
+cp.async.ca.shared{::cta}.global{.level::cache_hint}{.level::prefetch_size}
+                         [dst], [src], cp-size{, src-size}{, cache-policy} ;
+cp.async.cg.shared{::cta}.global{.level::cache_hint}{.level::prefetch_size}
+                         [dst], [src], 16{, src-size}{, cache-policy} ;
+cp.async.ca.shared{::cta}.global{.level::cache_hint}{.level::prefetch_size}
+                         [dst], [src], cp-size{, ignore-src}{, cache-policy} ;
+cp.async.cg.shared{::cta}.global{.level::cache_hint}{.level::prefetch_size}
+                         [dst], [src], 16{, ignore-src}{, cache-policy} ;
+
+.level::cache_hint =     { .L2::cache_hint }
+.level::prefetch_size =  { .L2::64B, .L2::128B, .L2::256B }
+cp-size =                { 4, 8, 16 }
+*/
     if constexpr (ASYNC_USE_PTX){
         int addr = __cvta_generic_to_shared(dst);
 

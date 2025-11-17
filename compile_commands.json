@@ -39,5 +39,39 @@
     "directory": "/root/.cache/torch_extensions/py312_cu128/relu_lib",
     "file": "/A/learn-ptx/a.cu",
     "output": "a.out"
+  },
+  {
+    "arguments": [
+      "/usr/local/cuda/bin/nvcc",
+      "-I/A/cutlass/include",
+      "-I/A/cutlass/examples/common",
+      "-I/A/cutlass/build/include",
+      "-I/A/cutlass/tools/util/include",
+      "-isystem",
+      "/usr/local/cuda/include",
+      "-DCUTLASS_VERSIONS_GENERATED",
+      "-O3",
+      "-DNDEBUG",
+      "-std=c++17",
+      "-Xcompiler=-fPIE",
+      "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1",
+      "-DCUTLASS_ENABLE_GDC_FOR_SM100=1",
+      "--expt-relaxed-constexpr",
+      "-ftemplate-backtrace-limit=0",
+      "-DCUTLASS_TEST_LEVEL=0",
+      "-DCUTLASS_TEST_ENABLE_CACHED_RESULTS=1",
+      "-DCUTLASS_CONV_UNIT_TEST_RIGOROUS_SIZE_ENABLED=1",
+      "-DCUTLASS_DEBUG_TRACE_LEVEL=0",
+      "-Xcompiler=-Wconversion",
+      "-Xcompiler=-fno-strict-aliasing",
+      "-x",
+      "cu",
+      "-c",
+      "-o",
+      "CMakeFiles/cute_tutorial_sgemm_1.dir/sgemm_1.cu.o",
+      "/A/learn-ptx/05_cutlass.cu"
+    ],
+    "directory": "/A/learn-ptx",
+    "file": "/A/learn-ptx/05_cutlass.cu"
   }
 ]

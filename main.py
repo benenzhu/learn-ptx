@@ -6,20 +6,39 @@ import rtc
 import tma
 importlib.reload(rtc)
 importlib.reload(tma)
+import triton.language as tl
 
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import time
 print(torch.__version__)
 from rtc import _check_cuda
 import cuda.bindings.driver as cbd
 
-def get_kernel(kernel_name, file_name="01_sm80_ptx.cu"):
+def get_kernel(kernel_name, file_name="01_sm80_ptx.cu", save_ptx = False):
     tic = time.time()
     kernel = _compile_kernel(
         open(file_name, "r").read(),
         kernel_name=kernel_name,
-        nvcc_options=["-std=c++17", "-D__CUDA_NO_HALF_OPERATORS__", "-D__CUDA_NO_HALF_CONVERSIONS__", "-D__CUDA_NO_BFLOAT16_CONVERSIONS__", "-D__CUDA_NO_HALF2_OPERATORS__"],
-        save_ptx=True,
+        nvcc_options=[
+            "-std=c++17", 
+            "-D__CUDA_NO_HALF_OPERATORS__", 
+            "-D__CUDA_NO_HALF_CONVERSIONS__", 
+            "-D__CUDA_NO_BFLOAT16_CONVERSIONS__", 
+            "-D__CUDA_NO_HALF2_OPERATORS__",
+            "-I/A/cutlass/include",
+            "-I/A/cutlass/examples/common",
+            "-I/A/cutlass/build/include",
+            "-I/A/cutlass/tools/util/include",
+            "-I/usr/local/cuda/include",
+            "-DCUTLASS_TEST_LEVEL=0",
+            "-DCUTLASS_TEST_ENABLE_CACHED_RESULTS=1",
+            "-DCUTLASS_CONV_UNIT_TEST_RIGOROUS_SIZE_ENABLED=1",
+            "-DCUTLASS_DEBUG_TRACE_LEVEL=0",
+            "-default-device",
+        ],
+        save_ptx=False,
     )
     toc = time.time()
     print("compile used time: ", toc - tic)
@@ -41,7 +60,7 @@ def test_ld_matrix_kernel():
     a = torch.zeros(16, 32, device="cuda").half()
     ld_matrix_kernel((1,1,1), (32,1,1), (a,))
     torch.cuda.synchronize()
-    time.sleep(0.5)
+    # time.sleep(0.5)
     
 # test_ld_matrix_kernel()
 
@@ -53,10 +72,22 @@ def test_mma_ptx_kernel():
     d = torch.matmul(a.reshape(16, 16), b.reshape(16, 16).T)
     mma_ptx_kernel((1,1,1), (32,1,1), (c, a, b, d))
     torch.cuda.synchronize()
-    time.sleep(0.5)
+    # time.sleep(0.5)
 
 # test_mma_ptx_kernel()
 
+
+def test_mma_wgmma_kernel():
+    mma_wgmma_kernel = get_kernel("mma_wgmma_kernel", file_name="02_mma_ptx_v2.cu")
+    a = torch.arange(16 * 16, device="cuda").half() * 0.1
+    b = torch.arange(16 * 16, device="cuda").half() * 0.1
+    c = torch.zeros(16 * 16 * 16, device="cuda").half()
+    d = torch.matmul(a.reshape(16, 16), b.reshape(16, 16).T)
+    mma_wgmma_kernel((1,1,1), (32,1,1), (c, a, b, d))
+    torch.cuda.synchronize()
+    time.sleep(0.5)
+    
+# test_mma_wgmma_kernel()
 def test_tma_1d_kernel():
     tma_1d_kernel = get_kernel("tma_1d_kernel", file_name="02_mma_ptx.cu")
     warps_per_block = 4 
@@ -101,10 +132,32 @@ def test_tma_2d_kernel():
     _check_cuda(result)
     print(f"grid_size : {grid_size}, block_size : {block_size}")
     tma_2d_kernel(grid_size, block_size, args=[tensor_map])
-test_tma_2d_kernel()
+# test_tma_2d_kernel()
 
 
 
 
 
 
+
+def test_build_cutlass_kernel():
+    kernel = get_kernel("cutlass_kernel_2", file_name="05_cutlass.cu")
+    print(kernel)
+    m = 5120
+    n = 2048
+    k = 4096
+    a = torch.randn(m, k, device="cuda").float()
+    b = torch.randn(n, k, device="cuda").float()
+    c = torch.zeros(m, n, device="cuda").float().T.contiguous().T
+    
+    dim_block = (16 * 16, 1, 1)
+    dim_grid = (m // 128, n // 128, 1)
+    kernel(dim_grid, dim_block , (a, b, c))
+    
+    diff = c - a@b.T
+    print("result", c - a@b.T)
+    print("max diff", diff.max())
+
+
+
+test_build_cutlass_kernel()
