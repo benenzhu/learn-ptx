@@ -141,7 +141,7 @@ def test_tma_2d_kernel():
 
 
 def test_build_cutlass_kernel():
-    kernel = get_kernel("cutlass_kernel_2", file_name="05_cutlass.cu")
+    kernel = get_kernel("cutlass_kernel_2", file_name="05_cutlass.cu", save_ptx=True)
     print(kernel)
     m = 5120
     n = 2048

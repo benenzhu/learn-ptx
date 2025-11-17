@@ -43,17 +43,16 @@
  
 
 using namespace cute;
-__device__ void myprint() { printf("\n"); }
+__device__ void myprint() { printf("\033[0m\n"); }
 
-#define dea2(a,n,m)    rep(_i, 0, n) { rep(_j, 0, m) O(a[_i][_j]); puts(""); };puts("")
-#define dea(a,n)	       rep(_i,0,n)O(a[_i]);puts("")
-#define O(i)            printf("%d ",i)
-#define On(i)           printf("%d\\n",i)
 template<typename T, typename... Types>
 __device__ void myprint(const T& first, const Types&... args) {
     print(first); print(" ");
     myprint(args...);
 }
+
+#define PRINT(...) if(thread0()){ printf("\033[93m%d \033[94m", __LINE__); myprint(__VA_ARGS__);};
+
 constexpr int m = Int<5120>{};
 constexpr int n = Int<2048>{}; 
 constexpr int k = Int<4096>{};
@@ -148,34 +147,30 @@ constexpr auto shape_MNK = prob_shape;
    Tensor mA = make_tensor(make_gmem_ptr(A), select<0,2>(shape_MNK), dA); // (M,K)
    Tensor mB = make_tensor(make_gmem_ptr(B), select<1,2>(shape_MNK), dB); // (N,K)
    Tensor mC = make_tensor(make_gmem_ptr(C), select<0,1>(shape_MNK), dC); // (M,N)
-   if(thread0()){
-    myprint("mA", mA);
-    myprint("mB", mB);
-    myprint("mC", mC);
-   } 
+   PRINT("mA", mA);
+   PRINT("mB", mB);
+   PRINT("mC", mC);
    // Get the appropriate blocks for this thread block
    auto cta_coord = make_coord(blockIdx.x, blockIdx.y, _);              // (m,n,k)
   /* cta_tiler: <128, 128, 8> */
   /* cta_coord: <blockIdx.x, blockIdx.y, _> */
+   // 这里是怎么识别出来的, 用的后面的 Step?
    Tensor gA = local_tile(mA, cta_tiler, cta_coord, Step<_1, X,_1>{});  // (BLK_M,BLK_K,k)
    Tensor gB = local_tile(mB, cta_tiler, cta_coord, Step< X,_1,_1>{});  // (BLK_N,BLK_K,k)
    Tensor gC = local_tile(mC, cta_tiler, cta_coord, Step<_1,_1, X>{});  // (BLK_M,BLK_N)
                                                                         
-   if(thread0()){
-    myprint("cta_coord", cta_coord);
-    myprint("gA", gA);
-    myprint("gB", gB);
-    myprint("gC", gC);
-   }
+   PRINT("cta_tiler", cta_tiler)
+   PRINT("cta_coord", cta_coord);
+   PRINT("gA", gA);
+   PRINT("gB", gB);
+   PRINT("gC", gC);
 
    // Shared memory buffers
    __shared__ TA smemA[cosize_v<ASmemLayout>];
    __shared__ TB smemB[cosize_v<BSmemLayout>];
-   if(thread0()){
-    myprint("ASmemLayout", sA_layout);
-    myprint("BSmemLayout", sB_layout);
-    myprint("cosize_v<sB_layout>", cosize_v<BSmemLayout>);
-   }
+   PRINT("ASmemLayout", sA_layout);
+   PRINT("BSmemLayout", sB_layout);
+   PRINT("cosize_v<sB_layout>", cosize_v<BSmemLayout>);
    Tensor sA = make_tensor(make_smem_ptr(smemA), sA_layout);            // (BLK_M,BLK_K)
    Tensor sB = make_tensor(make_smem_ptr(smemB), sB_layout);            // (BLK_N,BLK_K)  
                                                                         //
@@ -190,14 +185,14 @@ constexpr auto shape_MNK = prob_shape;
  
    Tensor tBgB = local_partition(gB, tB, threadIdx.x);                  // (THR_N,THR_K,k)
    Tensor tBsB = local_partition(sB, tB, threadIdx.x);                  // (THR_N,THR_K)
-  if(thread0()){
-    myprint("sA", sA);
-    myprint("sB", sB);
-    myprint("tAgA", tAgA);
-    myprint("tAsA", tAsA);
-    myprint("tBgB", tBgB);
-    myprint("tBsB", tBsB);
-  }
+   PRINT("sA", sA);
+   PRINT("sB", sB);
+   PRINT("tA", tA);
+   PRINT("tB", tB);
+   PRINT("tAgA", tAgA);
+   PRINT("tAsA", tAsA);
+   PRINT("tBgB", tBgB);
+   PRINT("tBsB", tBsB);
  
    CUTE_STATIC_ASSERT_V(size<0>(tAgA) == size<0>(tAsA));                // THR_M
    CUTE_STATIC_ASSERT_V(size<1>(tAgA) == size<1>(tAsA));                // THR_K
@@ -220,12 +215,10 @@ constexpr auto shape_MNK = prob_shape;
    // Allocate the accumulators -- same shape/layout as the partitioned data
    Tensor tCrC = make_tensor_like(tCgC);                                // (THR_M,THR_N)
           
-   if(thread0()){
-    myprint("tCsA", tCsA);
-    myprint("tCsB", tCsB);
-    myprint("tCgC", tCgC);
-    myprint("tCrC", tCrC);
-   } 
+   PRINT("tCsA", tCsA);
+   PRINT("tCsB", tCsB);
+   PRINT("tCgC", tCgC);
+   PRINT("tCrC", tCrC);
    CUTE_STATIC_ASSERT_V(size<0>(tCrC) == size<0>(tCgC));                // THR_M
    CUTE_STATIC_ASSERT_V(size<0>(tCrC) == size<0>(tCsA));                // THR_M
    CUTE_STATIC_ASSERT_V(size<1>(tCrC) == size<1>(tCgC));                // THR_N
