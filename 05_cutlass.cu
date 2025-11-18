@@ -206,6 +206,9 @@ constexpr auto shape_MNK = prob_shape;
    // TUTORIAL: Example of partitioning via projections of a ThreadLayout tC
  
    // Partition sA (BLK_M, BLK_K) by the rows of tC
+   // sA: (_128,_8):(_8,_1)
+   // tC: (_16,_16)
+   // tCsA: (_8,_8):(_128,_1)
    Tensor tCsA = local_partition(sA, tC, threadIdx.x, Step<_1, X>{});   // (THR_M,BLK_K)
    // Partition sB (BLK_N, BLK_K) by the cols of tC
    Tensor tCsB = local_partition(sB, tC, threadIdx.x, Step< X,_1>{});   // (THR_N,BLK_K)
@@ -269,6 +272,7 @@ constexpr auto shape_MNK = prob_shape;
    //   gemm(.) operates on the shared and register memory via the tC partitioning
  
    auto K_TILE_MAX = size<2>(tAgA);
+   PRINT("K_TILE_MAX", K_TILE_MAX);
  
    for (int k_tile = 0; k_tile < K_TILE_MAX; ++k_tile)
    {
@@ -289,7 +293,10 @@ constexpr auto shape_MNK = prob_shape;
  
      // Compute gemm on tC thread-partitioned smem
      gemm(tCsA, tCsB, tCrC);            // (THR_M,THR_N) += (THR_M,BLK_K) * (THR_N,BLK_K)
- 
+     if(k_tile==0){
+      PRINT("tCsA", tCsA);
+      PRINT("tAsA", tAsA);
+     } 
      // TUTORIAL: The above call to gemm(tCsA, tCsB, tCrC) is equivalent to
      //   CUTE_UNROLL
      //   for (int k = 0; k < size<1>(tCsA); ++k) {
