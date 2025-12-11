@@ -57,7 +57,7 @@ def test_async_cp_kernel():
 
 def test_ld_matrix_kernel():
     ld_matrix_kernel = get_kernel("ld_matrix_kernel")
-    a = torch.zeros(16, 32, device="cuda").half()
+    a = torch.zeros(100, 100, device="cuda").half()
     ld_matrix_kernel((1,1,1), (32,1,1), (a,))
     torch.cuda.synchronize()
     # time.sleep(0.5)

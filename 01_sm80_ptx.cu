@@ -117,23 +117,30 @@ m8n8 x4? means for that?
 31    248
 */
 
+
+__launch_bounds__(32)
 __global__ void ld_matrix_kernel(half *d_ptr) {
-    constexpr int elts = 4*8*8;
+    // 一个 total_row, total_col的矩阵,  加载他的左上角.
+    constexpr int total_row = 36, total_col = 40;
+    constexpr int elts = total_row * total_col;
     __shared__ half smem[elts];
+    
 
     /// init and print smem
     int tid = threadIdx.x;
     if(tid == 0) {
-        for(int i = 0; i < elts; i ++) {
-            smem[i] = __float2half(i);
+        for(int i = 0; i < total_row * total_col; i++) smem[i] = __float2half(0.0);
+        for(int i = 0; i < 16; i ++) {
+            for(int j = 0; j < 16; j++){
+                smem[i * total_col + j] = __float2half(i * 16 + j);
+            }
         }
         print_mem(smem);
     }
 
     /// ldmatrix
     uint32_t regs[4];
-    int row = 32;
-    half *ptr = smem + tid % 16 * 16 + tid / 16 * 8;
+    half *ptr = smem + tid % 16 * total_col + tid / 16 * 8;
     printf("%d %6.lf\n", threadIdx.x, __half2float(ptr[0]));
     uint32_t addr = __cvta_generic_to_shared(ptr);
     asm("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];\n"
@@ -150,16 +157,17 @@ __global__ void ld_matrix_kernel(half *d_ptr) {
             printf("%6.lf, %6.lf\n", __half2float(data[0]), __half2float(data[1]));
         }
     }
-    if(tid < 32){
+
+    {
         int row = tid / 4;
         int col = tid % 4;
         reinterpret_cast<uint32_t*>(d_ptr)[row       * 8 + col] = regs[0];
         reinterpret_cast<uint32_t*>(d_ptr)[(row + 8) * 8 + col] = regs[1];
         reinterpret_cast<uint32_t*>(d_ptr)[row       * 8 + col + 4] = regs[2];
         reinterpret_cast<uint32_t*>(d_ptr)[(row + 8) * 8 + col + 4] = regs[3]; 
+        __syncthreads();
+        print_mem(d_ptr);
     }
-    __syncthreads();
-    print_mem(d_ptr);
 }
 
 
