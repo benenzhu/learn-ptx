@@ -132,6 +132,7 @@ __global__ void ld_matrix_kernel(half *d_ptr) {
 
     /// ldmatrix
     uint32_t regs[4];
+    int row = 32;
     half *ptr = smem + tid % 16 * 16 + tid / 16 * 8;
     printf("%d %6.lf\n", threadIdx.x, __half2float(ptr[0]));
     uint32_t addr = __cvta_generic_to_shared(ptr);

@@ -62,7 +62,7 @@ def test_ld_matrix_kernel():
     torch.cuda.synchronize()
     # time.sleep(0.5)
     
-# test_ld_matrix_kernel()
+test_ld_matrix_kernel()
 
 def test_mma_ptx_kernel():
     mma_ptx_kernel = get_kernel("mma_ptx_kernel", file_name="02_mma_ptx.cu")
@@ -160,4 +160,4 @@ def test_build_cutlass_kernel():
 
 
 
-test_build_cutlass_kernel()
+# test_build_cutlass_kernel()

@@ -41,8 +41,6 @@ CompileFlags:
     - "-Werror=cross-execution-space-call"
 Hover:
   ShowAKA: No
-InlayHints:
-  Enabled: Yes
 Diagnostics:
   Suppress:
     - "variadic_device_fn"
