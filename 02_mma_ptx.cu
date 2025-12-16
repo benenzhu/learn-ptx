@@ -13,14 +13,19 @@
 // template <int elts, bool print>
 constexpr int elts = 16 * 16;
 constexpr bool print = true;
+
+// mnk: 16 16 16
 __global__ void mma_ptx_kernel(half *c_ptr, half *a_ptr, half *b_ptr, half *d_ptr) {
     int tid = threadIdx.x;
+    constexpr int A_cols = 16;
+    constexpr int B_cols = 16;
 
     // ldgsts
     __shared__ half smem_a[elts];
     __shared__ half smem_b[elts];
 
-    half *src = a_ptr + tid / 2 * 16 + tid % 2 * 8;
+    // 16 * 16 / 8 = 32 一次正好拷贝完....
+    half *src = a_ptr + tid / 2 * A_cols + tid % 2 * 8;
     half *dst = smem_a + tid * 8;
     uint32_t addr = __cvta_generic_to_shared(dst);
     asm("cp.async.cg.shared.global [%0], [%1], 16;\n"
@@ -29,7 +34,7 @@ __global__ void mma_ptx_kernel(half *c_ptr, half *a_ptr, half *b_ptr, half *d_pt
     );
     asm("cp.async.commit_group;\n"::);
 
-    src = b_ptr + tid / 2 * 16 + tid % 2 * 8;
+    src = b_ptr + tid / 2 * B_cols + tid % 2 * 8;
     dst = smem_b + tid * 8;
     addr = __cvta_generic_to_shared(dst);
     asm("cp.async.cg.shared.global [%0], [%1], 16;\n"
@@ -51,13 +56,10 @@ __global__ void mma_ptx_kernel(half *c_ptr, half *a_ptr, half *b_ptr, half *d_pt
 
     }
 
-    // ldmatrix
+    // ldmatrix 16 * 16 / 32 = 8 bfloat = float4
     uint32_t a_regs[4];
     uint32_t b_regs[4];
     src = smem_a + tid % 16 * 16 + tid / 16 * 8;
-    /*	mul.wide.s32 	%rd57, %r97, 2;
-        add.s64 	%rd59, %rd27, %rd57;
-        cvt.u32.u64 	%r83, %rd59;*/
 
     addr = __cvta_generic_to_shared(src);
     asm("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];\n"
