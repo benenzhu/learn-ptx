@@ -95,10 +95,3 @@ __global__ void tma_2d_kernel(const __grid_constant__ CUtensorMap tensor_map) {
         (&bar)->~barrier();
     }
 }
-#ifdef __CUDACC_RTC__
-#else
-int main(){
-    cuTensorMapEncodeTiled(
-    )
-}
-#endif
