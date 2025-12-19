@@ -95,3 +95,36 @@ __global__ void tma_2d_kernel(const __grid_constant__ CUtensorMap tensor_map) {
         (&bar)->~barrier();
     }
 }
+
+
+
+#ifndef __CUDACC_RTC__
+#include <random>
+#include <cuda_runtime.h>
+#include <cuda_fp16.h>
+#include <cuda/barrier>
+#include <cuda.h>
+#include <cudaTypedefs.h>
+int main(){
+    CUtensorMap tensor_map_O;
+    half* d_ptr;
+    uint64_t size[3] = {D_V, (unsigned long)params.h_q, (unsigned long)params.s_q};
+    uint64_t stride[2] = {D_V*sizeof(bf16), D_V*params.h_q*sizeof(bf16)};
+    uint32_t box_size[3] = {64, B_H, 1};
+    uint32_t elem_stride[3] = {1, 1, 1};
+    cuTensorMapEncodeTiled(
+        &tensor_map_O,
+        CUtensorMapDataType::CU_TENSOR_MAP_DATA_TYPE_BFLOAT16,
+        3,
+        d_ptr,
+        size,
+        stride,
+        box_size,
+        elem_stride,
+        CUtensorMapInterleave::CU_TENSOR_MAP_INTERLEAVE_NONE,
+        CUtensorMapSwizzle::CU_TENSOR_MAP_SWIZZLE_128B,
+        CUtensorMapL2promotion::CU_TENSOR_MAP_L2_PROMOTION_NONE,
+        CUtensorMapFloatOOBfill::CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE
+    );
+}
+#endif

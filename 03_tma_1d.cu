@@ -7,8 +7,135 @@ using barrier = cuda::barrier<cuda::thread_scope_block>;
 namespace cde = cuda::device::experimental;
 
 
+__global__ void tma_1d_kernel_only_read(half* ptr, int elts){
+  extern __shared__ __align__(16) half smem[];
+  // 1. shared memory barrier;
+  __shared__ barrier bar;
+  // 2. init barrier and make it visible in async proxy;
+  if(threadIdx.x == 0){
+    init(&bar, blockDim.x);
+    // generic proxy & async proxy's difference.
+    cde::fence_proxy_async_shared_cta();
+  }
+  __syncthreads();
+  // 3. init tma. 
+  if(threadIdx.x == 0){
+    cuda::memcpy_async(
+      smem,
+      ptr,
+      cuda::aligned_size_t<16>(sizeof(half) * elts),
+      bar
+    );
+  }
+  // 4. arrive on the barrier
+  barrier::arrival_token token = bar.arrive();
+  bar.wait(std::move(token));
+  for(int i = threadIdx.x; i < elts; i += blockDim.x){
+    smem[i] = __hadd(smem[i], __float2half(1.0));
+  }
+  __syncthreads();
+  // write back not use tma;
+  for(int i = threadIdx.x - 10; i < elts; i+= blockDim.x){
+    if(i >= 0){
+      ptr[i] = smem[i];
+    }
+  }
+}
+
+
+__global__ void tma_1d_kernel_only_write(half* ptr, int elts){
+  extern __shared__ __align__(16) half smem[];
+  for(int i = threadIdx.x; i < elts; i += blockDim.x){
+    smem[i] = __hadd(smem[i], __float2half(float(threadIdx.x)));
+  }
+  // 1. wait for shared memory writes to be visible to TMA engine.
+  cde::fence_proxy_async_shared_cta();
+  __syncthreads();
+  if(threadIdx.x == 0){
+    // 2. initiate tma transfer to copy shared memory to global memory;
+    cde::cp_async_bulk_shared_to_global(
+      ptr, smem, sizeof(half) * elts
+    );
+    // 3. tma commit group
+    cde::cp_async_bulk_commit_group();
+    // 4. wait for the group complete.
+    cde::cp_async_bulk_wait_group_read<0>();
+  }
+}
+
 __launch_bounds__(32*4)
 __global__ void tma_1d_kernel(half* ptr, int elts)
+{
+  // Shared memory buffer. The destination shared memory buffer of a bulk operations should be 16 byte aligned.
+ extern __shared__ __align__(16) half smem[];
+  
+  ////////////////// global mem -> shared mem //////////////////
+  // 1. a) Initialize shared memory barrier with the number of threads participating in the barrier.
+  //    b) Make initialized barrier visible in async proxy.
+  #pragma nv_diag_suppress static_var_with_dynamic_init
+  __shared__ barrier bar;
+  if (threadIdx.x == 0) { 
+    init(&bar, blockDim.x);                      // a)
+    cde::fence_proxy_async_shared_cta();         // b)
+  }
+  __syncthreads();
+
+  // 2. Initiate TMA transfer to copy global to shared memory.
+  if (threadIdx.x == 0) {
+    // 3a. cuda::memcpy_async arrives on the barrier and communicates
+    //     how many bytes are expected to come in (the transaction count)
+    cuda::memcpy_async(
+        smem, 
+        ptr,
+        cuda::aligned_size_t<16>(sizeof(half) * elts),
+        bar
+    );
+  }
+  // 3b. All threads arrive on the barrier
+/*
+  mbarrier.arrive.shared::cta.b64                             %rd13,  [%r17], %r18; 
+*/
+  barrier::arrival_token token = bar.arrive();
+  
+  // 3c. Wait for the data to have arrived.
+  bar.wait(std::move(token));
+
+  // 4. Compute saxpy and write back to shared memory
+  for (int i = threadIdx.x; i < elts; i += blockDim.x) {
+    smem[i] = __hadd(smem[i], __float2half(1.0));
+  }
+  
+  ////////////////// shared mem -> global mem //////////////////
+  // 5. Wait for shared memory writes to be visible to TMA engine.
+  cde::fence_proxy_async_shared_cta();   // b)
+  __syncthreads();
+  // After syncthreads, writes by all threads are visible to TMA engine.
+
+  if(threadIdx.x == 0) {
+    printf("\ndata on device: %d\n", elts);
+    print_mem(smem, 32, 32);
+    // for(int i = 0; i < elts; i ++) {
+    //     printf("%.2lf ", __half2float(smem[i]));
+    // }
+  }
+
+  // 6. Initiate TMA transfer to copy shared memory to global memory
+  if (threadIdx.x == 0) {
+    cde::cp_async_bulk_shared_to_global(
+            ptr, smem, sizeof(half)*elts);
+    // 7. Wait for TMA transfer to have finished reading shared memory.
+    // Create a "bulk async-group" out of the previous bulk copy operation.
+    cde::cp_async_bulk_commit_group();
+    // Wait for the group to have completed reading from shared memory.
+    cde::cp_async_bulk_wait_group_read<0>();
+  }
+}
+
+
+
+
+__launch_bounds__(32*4)
+__global__ void tma_1d_kernel_with_ptx(half* ptr, int elts)
 {
   // Shared memory buffer. The destination shared memory buffer of
   // a bulk operations should be 16 byte aligned.
